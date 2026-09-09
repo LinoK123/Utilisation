@@ -37,6 +37,7 @@ h1{font-size:27px;font-weight:500;letter-spacing:-0.015em;margin:0;line-height:1
 .pull{display:flex;align-items:center;gap:7px;font-size:13px;color:var(--ink-soft)}
 .pull input{font:inherit;font-size:13px;padding:5px 8px;border:1px solid var(--line);border-radius:7px;background:var(--card);color:var(--ink)}
 .pull input:focus-visible{outline:2px solid var(--hrwl-deep);outline-offset:1px}
+.pull input.guessed{border-color:var(--warn-line);background:var(--warn-bg);color:var(--warn-ink)}
 
 .sites{display:flex;gap:7px;flex-wrap:wrap;margin-top:14px}
 .site{background:var(--card);border:1px solid var(--line);border-radius:8px;font:inherit;font-size:13.5px;
@@ -1114,9 +1115,10 @@ License: MIT
   var AGE_WARN = 1, AGE_STALE = 7;
   var canStore = true;
 
-  function saveCsv(csvText, name){
+  function saveCsv(csvText, name, pull){
     try {
-      localStorage.setItem(STORE_KEY, JSON.stringify({ csv:csvText, name:name }));
+      localStorage.setItem(STORE_KEY,
+        JSON.stringify({ csv:csvText, name:name, pull: pull ? iso(pull) : null }));
     } catch (e) {
       // Quota, private browsing or a locked-down corporate profile. The page
       // still works for this session; it just will not be there next time.
@@ -1165,6 +1167,14 @@ License: MIT
       d === 1 ? 'This file was pulled yesterday' : 'This file is ' + ageText(d);
   }
 
+  // A date that was inferred rather than read from the filename is worth
+  // flagging: it anchors every week on the Utilisation tab.
+  function markGuessed(on){
+    var pd = document.getElementById('pullDate');
+    pd.classList.toggle('guessed', !!on);
+    pd.title = on ? 'Estimated, because the filename has no date in it. Correct it here if it is wrong.' : '';
+  }
+
   function setBlank(on){
     // classList, not className: the element also carries the shared `dropbox`
     // class, and assigning className wholesale would strip its styling.
@@ -1192,6 +1202,7 @@ License: MIT
     document.getElementById('loaderLbl').textContent = name + ' — drop a new CSV to replace';
     setBlank(false);
     showAge(pull);
+    markGuessed(!dateFromName(name));
     focus = null;
     load(site);
     render();
@@ -1202,11 +1213,22 @@ License: MIT
     var m = String(name).match(/(\d{4})-(\d{2})-(\d{2})/);
     return m ? new Date(Date.UTC(+m[1], +m[2]-1, +m[3])) : null;
   }
+  // When a mail client saves an attachment it stamps the file with the time it
+  // hit the disk, which is a far better guess than "today" and is per-file, so
+  // duplicate names like "... (1).csv" make no difference.
+  function dateFromFile(f){
+    if (!f || !f.lastModified) return null;
+    var d = new Date(f.lastModified);
+    return new Date(Date.UTC(d.getFullYear(), d.getMonth(), d.getDate()));
+  }
   function handleFile(f){
     var rd = new FileReader();
     rd.onload = function(){
-      var pull = dateFromName(f.name) || pullDate || todayUTC();
-      saveCsv(rd.result, f.name);
+      // Never fall back to the pull date already on screen: with an undated
+      // filename that silently stamps each new export with the previous one's
+      // date, so the file looks a day older every day while never updating.
+      var pull = dateFromName(f.name) || dateFromFile(f) || todayUTC();
+      saveCsv(rd.result, f.name, pull);
       apply(rd.result, pull, f.name);
       document.getElementById('clearSaved').hidden = !readCsv();
     };
@@ -1237,6 +1259,9 @@ License: MIT
     var v = e.target.value; if (!v || !RAW) return;
     var p = new Date(v + 'T00:00:00Z');
     MODEL = transform(RAW, p); pullDate = p; focus = null; load(site); render(); showAge(p);
+    markGuessed(false);
+    var held = readCsv();
+    if (held) saveCsv(held.csv, held.name, p);   // a correction should stick
   });
 
   document.getElementById('clearSaved').addEventListener('click', function(){
@@ -1249,7 +1274,11 @@ License: MIT
   function boot(){
     var saved = readCsv();
     if (saved){
-      apply(saved.csv, dateFromName(saved.name) || todayUTC(), saved.name);
+      // The stored pull date wins: the file's timestamp is long gone by now,
+      // and it may have been corrected by hand.
+      var when = saved.pull ? new Date(saved.pull + 'T00:00:00Z')
+                            : (dateFromName(saved.name) || todayUTC());
+      apply(saved.csv, when, saved.name);
       document.getElementById('clearSaved').hidden = false;
       return;
     }
