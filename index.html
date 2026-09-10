@@ -86,6 +86,8 @@ h1{font-size:27px;font-weight:500;letter-spacing:-0.015em;margin:0;line-height:1
 .wk .split{display:flex;height:5px;border-radius:3px;overflow:hidden;margin-top:9px;background:var(--empty)}
 .wk .split i{display:block;height:100%}
 .wk .pct{font-size:11.5px;color:var(--ink-soft);margin-top:6px}
+.wk .crs{font-size:11.5px;color:var(--ink-faint);margin-top:2px}
+.wkbar{margin:0 0 18px}
 
 .detail{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:14px 18px;margin:12px 0 0;display:none}
 .detail.on{display:block}
@@ -161,11 +163,14 @@ thead th{color:var(--ink-faint);font-weight:400;font-size:12px;border-bottom:1px
 .fcard.promote .t,.fcard.promote .n{color:var(--warn-ink)}
 .fcard.review{background:var(--risk-bg);border-color:var(--risk-line)}
 .fcard.review .t,.fcard.review .n{color:var(--risk-ink)}
+.fcard.ran{background:#F2F3F0;border-color:#E2E3DF}
+.fcard.ran .t,.fcard.ran .n{color:var(--ink-soft)}
 
 .pill{display:inline-block;padding:2px 9px;border-radius:11px;font-size:11.5px;font-weight:500;white-space:nowrap}
 .pill.run{background:var(--ok-bg);color:var(--ok-ink)}
 .pill.promote{background:var(--warn-bg);color:var(--warn-ink)}
 .pill.review{background:var(--risk-bg);color:var(--risk-ink)}
+.pill.ran{background:#ECEDE9;color:var(--ink-faint)}
 
 .mini{display:inline-flex;height:5px;width:52px;border-radius:3px;overflow:hidden;
   background:var(--empty);vertical-align:middle;flex:none}
@@ -260,6 +265,8 @@ thead th{color:var(--ink-faint);font-weight:400;font-size:12px;border-bottom:1px
   </div>
 
   <div class="view on" id="view-weekly">
+
+  <div class="seg wkbar" id="wkScope" role="group" aria-label="Choose a period"></div>
 
   <div class="strip" id="strip"></div>
   <div class="detail" id="detail" role="region" aria-live="polite"></div>
@@ -389,7 +396,8 @@ License: MIT
             hrwlInk:'#4B3F80', nonInk:'#2C5F54',
             ink:'#3D4547', soft:'#6E7A78', faint:'#96A09E', grid:'#EEF0EA', card:'#FFFFFF' };
 
-  var site='All', focus=null, MODEL=null, D=null, tot=[], shH=[], shN=[], pullDate=null, RAW=null;
+  var site='All', focus=null, MODEL=null, D=null, V=null, tot=[], shH=[], shN=[], pullDate=null, RAW=null;
+  var wkScope='all';
   var view='weekly', selId='w2', scope='flagged', sortBy='soon';
 
   function money(v){ return (v===null||v===undefined) ? '—' : '$' + Math.round(v).toLocaleString('en-AU'); }
@@ -526,15 +534,36 @@ License: MIT
     return { weeks:weeks, sites:sites, notes:notes, warn:warn, n:n, courses:kept, pull:pull, lo:lo, hi:hi };
   }
 
+  var WEEK_FIELDS = ['revH','revN','crsH','crsN','sdH','sdN','tdH','tdN',
+                     'seatsH','capH','seatsN','capN','fillH','fillN','yieldH','yieldN'];
+
   function load(key){
     site = key; D = MODEL.sites[key];
-    tot = D.revH.map(function(v,i){ return v + D.revN[i]; });
-    shH = D.revH.map(function(v,i){ return tot[i] ? v/tot[i]*100 : 0; });
-    shN = D.revN.map(function(v,i){ return tot[i] ? v/tot[i]*100 : 0; });
+    applyScope();
   }
-  function labels(){ return MODEL.weeks.map(function(w){ return 'Wk ' + w.week; }); }
+  function monthKey(d){ return d.getUTCFullYear() * 12 + d.getUTCMonth(); }
+  function scopeMonth(){
+    if (wkScope === 'cur') return monthKey(MODEL.pull);
+    if (wkScope === 'nxt') return monthKey(nextMonth(MODEL.pull));
+    return null;
+  }
+  // V is the visible slice of D. Everything the weekly tab draws indexes into
+  // V, never D, so `focus` and the chart arrays always line up.
+  function applyScope(){
+    var all = MODEL.weeks, want = scopeMonth(), idx = [];
+    all.forEach(function(w,i){ if (want === null || monthKey(w.mon) === want) idx.push(i); });
+    V = { weeks: idx.map(function(i){ return all[i]; }) };
+    WEEK_FIELDS.forEach(function(k){
+      V[k] = idx.map(function(i){ return D[k][i]; });
+    });
+    tot = V.revH.map(function(v,i){ return v + V.revN[i]; });
+    shH = V.revH.map(function(v,i){ return tot[i] ? v/tot[i]*100 : 0; });
+    shN = V.revN.map(function(v,i){ return tot[i] ? v/tot[i]*100 : 0; });
+    if (focus !== null && focus >= V.weeks.length) focus = null;
+  }
+  function labels(){ return V.weeks.map(function(w){ return 'Wk ' + w.week; }); }
   function dateLabels(){
-    return MODEL.weeks.map(function(w){ return fmtDate(w.mon) + ' – ' + fmtDate(addDays(w.mon,4)); });
+    return V.weeks.map(function(w){ return fmtDate(w.mon) + ' – ' + fmtDate(addDays(w.mon,4)); });
   }
 
   function pctRange(vals){
@@ -569,9 +598,46 @@ License: MIT
         '<div class="rev">' + money(tot[i]) + '</div>' +
         '<div class="split"><i style="width:' + shH[i].toFixed(1) + '%;background:' + C.hrwl + '"></i>' +
         '<i style="width:' + shN[i].toFixed(1) + '%;background:' + C.non + '"></i></div>' +
-        '<div class="pct">' + shH[i].toFixed(1) + '% HRWL</div>';
+        '<div class="pct">' + shH[i].toFixed(1) + '% HRWL</div>' +
+        '<div class="crs">' + (V.crsH[i] + V.crsN[i]) + ' courses</div>';
       b.addEventListener('click', function(){ setFocus(focus === i ? null : i); });
       strip.appendChild(b);
+    });
+  }
+  function scopeOptions(){
+    if (!MODEL) return [];
+    var out = [{ id:'all', label:'All Weeks' }];
+    [['cur', MODEL.pull], ['nxt', nextMonth(MODEL.pull)]].forEach(function(pair){
+      var k = monthKey(pair[1]);
+      var present = MODEL.weeks.filter(function(w){ return monthKey(w.mon) === k; }).length;
+      if (present) out.push({ id:pair[0], month:pair[1],
+        label: pair[0] === 'cur' ? 'Current Month' : 'Next Month' });
+    });
+    return out;
+  }
+  function scopeSub(o){
+    if (o.month) return MONTHS[o.month.getUTCMonth()];
+    var w = MODEL.weeks;
+    if (!w.length) return '';
+    return w.length === 1 ? 'Wk ' + w[0].week : 'Wk ' + w[0].week + '–' + w[w.length-1].week;
+  }
+  function buildScope(){
+    var host = document.getElementById('wkScope'), opts = scopeOptions();
+    if (opts.length && !opts.filter(function(o){ return o.id === wkScope; }).length){
+      wkScope = 'all'; applyScope();
+    }
+    host.innerHTML = '';
+    opts.forEach(function(o){
+      var b = document.createElement('button');
+      b.type = 'button';
+      b.setAttribute('aria-pressed', o.id === wkScope ? 'true' : 'false');
+      b.innerHTML = '<span class="lab">' + o.label + '</span><span class="rng">' + scopeSub(o) + '</span>';
+      b.addEventListener('click', function(){
+        if (wkScope === o.id) return;
+        wkScope = o.id; focus = null;
+        applyScope(); render();
+      });
+      host.appendChild(b);
     });
   }
   function row(k,v){ return '<div><span>' + k + '</span><b>' + v + '</b></div>'; }
@@ -581,14 +647,14 @@ License: MIT
     var L = labels(), DT = dateLabels();
     detail.className = 'detail on';
     detail.innerHTML = '<h2>' + L[i] + ', ' + DT[i] + '</h2><div class="dgrid">' +
-      row('Revenue', money(tot[i]) + '  ·  ' + money(D.revH[i]) + ' HRWL') +
-      row('Courses run', (D.crsH[i] + D.crsN[i]) + '  ·  ' + D.crsH[i] + ' HRWL') +
-      row('Student days', num(D.sdH[i] + D.sdN[i]) + '  ·  ' + num(D.sdH[i]) + ' HRWL') +
-      row('Training days', num(D.tdH[i] + D.tdN[i]) + '  ·  ' + num(D.tdH[i]) + ' HRWL') +
-      row('HRWL seats', D.capH[i] ? D.seatsH[i] + ' of ' + D.capH[i] + ' (' + pct(D.fillH[i]) + ')' : 'no HRWL courses') +
-      row('NON HRWL seats', D.capN[i] ? D.seatsN[i] + ' of ' + D.capN[i] + ' (' + pct(D.fillN[i]) + ')' : 'no courses') +
-      row('HRWL per training day', money(D.yieldH[i])) +
-      row('NON HRWL per training day', money(D.yieldN[i])) +
+      row('Revenue', money(tot[i]) + '  ·  ' + money(V.revH[i]) + ' HRWL') +
+      row('Courses run', (V.crsH[i] + V.crsN[i]) + '  ·  ' + V.crsH[i] + ' HRWL') +
+      row('Student days', num(V.sdH[i] + V.sdN[i]) + '  ·  ' + num(V.sdH[i]) + ' HRWL') +
+      row('Training days', num(V.tdH[i] + V.tdN[i]) + '  ·  ' + num(V.tdH[i]) + ' HRWL') +
+      row('HRWL seats', V.capH[i] ? V.seatsH[i] + ' of ' + V.capH[i] + ' (' + pct(V.fillH[i]) + ')' : 'no HRWL courses') +
+      row('NON HRWL seats', V.capN[i] ? V.seatsN[i] + ' of ' + V.capN[i] + ' (' + pct(V.fillN[i]) + ')' : 'no courses') +
+      row('HRWL per training day', money(V.yieldH[i])) +
+      row('NON HRWL per training day', money(V.yieldN[i])) +
       '</div><button class="clearbtn" type="button" id="clr">Clear selection</button>';
     document.getElementById('clr').addEventListener('click', function(){ setFocus(null); });
   }
@@ -600,12 +666,12 @@ License: MIT
   }
   function fade(hex){ return hex + '3D'; }
   function barColours(hex){
-    return MODEL.weeks.map(function(_,i){ return (focus === null || i === focus) ? hex : fade(hex); });
+    return V.weeks.map(function(_,i){ return (focus === null || i === focus) ? hex : fade(hex); });
   }
   function applyFocus(ch){
     ch.data.datasets.forEach(function(ds){
       if (ds.type === 'bar') ds.backgroundColor = barColours(ds._base);
-      else ds.pointRadius = MODEL.weeks.map(function(_,i){ return focus===null ? 5 : (i===focus ? 8 : 4); });
+      else ds.pointRadius = V.weeks.map(function(_,i){ return focus===null ? 5 : (i===focus ? 8 : 4); });
     });
   }
   function dayLabels(chart, di, vals, colour){
@@ -675,9 +741,9 @@ License: MIT
         });
         x.restore();
       }
-      if (!D) return;
-      dayLabels(chart, 0, D.tdH, C.hrwlInk);
-      dayLabels(chart, 1, D.tdN, C.nonInk);
+      if (!V) return;
+      dayLabels(chart, 0, V.tdH, C.hrwlInk);
+      dayLabels(chart, 1, V.tdN, C.nonInk);
     }}],
     data:{ labels:[], datasets:[ bar('HRWL Share', C.hrwl, false), bar('NON HRWL Share', C.non, true),
       ln('HRWL per Training Day', C.hrwlDeep, [], 'circle', 1), ln('NON HRWL per Training Day', C.nonDeep, [6,3], 'rectRot', 2) ]},
@@ -686,7 +752,7 @@ License: MIT
       plugins: Object.assign({}, base.plugins, { tooltip: Object.assign({}, base.plugins.tooltip, {
         callbacks:{ label:function(c){
           if (c.dataset.type !== 'line') return c.dataset.label + ': ' + c.parsed.y.toFixed(1) + '%';
-          var d = (c.datasetIndex === 2 ? D.tdH : D.tdN)[c.dataIndex];
+          var d = (c.datasetIndex === 2 ? V.tdH : V.tdN)[c.dataIndex];
           return c.dataset.label + ': ' + money(c.parsed.y) + ' (' + days(d) + ')';
         } } })}),
       scales:{ x:xScale(), y:yLeft(pctTick, 100), y1:yRight({min:0,max:2000,step:500}, money) }
@@ -722,33 +788,34 @@ License: MIT
   }
   function buildTables(){
     table('tbl1', [
-      ['Total revenue', tot.map(money)], ['HRWL revenue', D.revH.map(money)], ['NON HRWL revenue', D.revN.map(money)],
-      ['HRWL seats', D.seatsH.map(function(v,i){ return D.capH[i] ? v + ' / ' + D.capH[i] : '—'; })],
-      ['HRWL utilisation', D.fillH.map(pct)],
-      ['NON HRWL seats', D.seatsN.map(function(v,i){ return D.capN[i] ? v + ' / ' + D.capN[i] : '—'; })],
-      ['NON HRWL utilisation', D.fillN.map(pct)]]);
+      ['Total revenue', tot.map(money)], ['HRWL revenue', V.revH.map(money)], ['NON HRWL revenue', V.revN.map(money)],
+      ['HRWL seats', V.seatsH.map(function(v,i){ return V.capH[i] ? v + ' / ' + V.capH[i] : '—'; })],
+      ['HRWL utilisation', V.fillH.map(pct)],
+      ['NON HRWL seats', V.seatsN.map(function(v,i){ return V.capN[i] ? v + ' / ' + V.capN[i] : '—'; })],
+      ['NON HRWL utilisation', V.fillN.map(pct)]]);
     table('tbl2', [
       ['Total revenue', tot.map(money)],
       ['HRWL share', shH.map(function(v){ return v.toFixed(1) + '%'; })],
       ['NON HRWL share', shN.map(function(v){ return v.toFixed(1) + '%'; })],
-      ['HRWL courses', D.crsH], ['NON HRWL courses', D.crsN],
-      ['HRWL student days', D.sdH.map(num)], ['NON HRWL student days', D.sdN.map(num)],
-      ['HRWL training days', D.tdH.map(num)], ['NON HRWL training days', D.tdN.map(num)],
-      ['HRWL per training day', D.yieldH.map(money)], ['NON HRWL per training day', D.yieldN.map(money)]]);
+      ['HRWL courses', V.crsH], ['NON HRWL courses', V.crsN],
+      ['HRWL student days', V.sdH.map(num)], ['NON HRWL student days', V.sdN.map(num)],
+      ['HRWL training days', V.tdH.map(num)], ['NON HRWL training days', V.tdN.map(num)],
+      ['HRWL per training day', V.yieldH.map(money)], ['NON HRWL per training day', V.yieldN.map(money)]]);
   }
   function render(){
+    buildScope();
     var L = labels();
     buildStrip(); buildDetail();
     ch1.data.labels = L; ch2.data.labels = L;
-    ch1.data.datasets[0].data = D.revH; ch1.data.datasets[1].data = D.revN;
-    ch1.data.datasets[2].data = D.fillH; ch1.data.datasets[3].data = D.fillN;
+    ch1.data.datasets[0].data = V.revH; ch1.data.datasets[1].data = V.revN;
+    ch1.data.datasets[2].data = V.fillH; ch1.data.datasets[3].data = V.fillN;
     ch2.data.datasets[0].data = shH; ch2.data.datasets[1].data = shN;
-    ch2.data.datasets[2].data = D.yieldH; ch2.data.datasets[3].data = D.yieldN;
-    ch1.options.scales.y1 = yRight(pctRange(D.fillH.concat(D.fillN)), pctTick);
-    ch2.options.scales.y1 = yRight(dollarRange(D.yieldH.concat(D.yieldN)), money);
+    ch2.data.datasets[2].data = V.yieldH; ch2.data.datasets[3].data = V.yieldN;
+    ch1.options.scales.y1 = yRight(pctRange(V.fillH.concat(V.fillN)), pctTick);
+    ch2.options.scales.y1 = yRight(dollarRange(V.yieldH.concat(V.yieldN)), money);
     applyFocus(ch1); applyFocus(ch2); ch1.update(); ch2.update();
     buildTables();
-    var w = MODEL.weeks;
+    var w = V.weeks;
     document.getElementById('h1').textContent = w.length
       ? 'Site progress, weeks ' + w[0].week + ' to ' + w[w.length-1].week : 'Site progress';
     document.getElementById('stamp').textContent = w.length
@@ -758,8 +825,8 @@ License: MIT
 
   // ---- Upcoming ---------------------------------------------------------
 
-  var FLAG_ORDER = { Review:0, Promote:1, Run:2 };
-  var FLAGC = { Run:'#46897C', Promote:'#B98426', Review:'#B4564A' };
+  var FLAG_ORDER = { Review:0, Promote:1, Run:2, Ran:3 };
+  var FLAGC = { Run:'#46897C', Promote:'#B98426', Review:'#B4564A', Ran:'#9DA3A0' };
   var SCALE = { low:'#EDB5AB', mid:'#F7DFAE', high:'#C2DFCF' };
   var BAR   = { left:'#CFDAEB', gap:'#EFCCA8' };
 
@@ -828,11 +895,16 @@ License: MIT
   }
   function dataLimit(){ return MODEL.hi; }
   function optStart(o){
-    var s = o.weeks ? o.weeks[0].mon : o.from;
-    return s > MODEL.pull ? s : MODEL.pull;
+    // Week selections run from the Monday, so "This week" is the whole week and
+    // reconciles with the weekly tab even on a mid-week pull. Month selections
+    // still start at the pull date, since "Rest of Month" means what it says.
+    if (o.weeks) return o.weeks[0].mon;
+    return o.from > MODEL.pull ? o.from : MODEL.pull;
   }
   function optEnd(o){
-    if (o.weeks) return addDays(o.weeks[o.weeks.length - 1].mon, 6);
+    // Friday, to match how the week cards are labelled. Week selections match on
+    // ISO week key rather than this range, so it is a display bound only.
+    if (o.weeks) return addDays(o.weeks[o.weeks.length - 1].mon, 4);
     var lim = dataLimit();
     return o.to > lim ? lim : o.to;
   }
@@ -859,9 +931,6 @@ License: MIT
       o.weeks.forEach(function(w){ keys[w.year + '-' + w.week] = true; });
     }
     MODEL.courses.forEach(function(c){
-      // Forward-only even inside the current week: a course that has already
-      // started cannot be promoted, and negative days-to-start would misflag it.
-      if (c.dts < 0) return;
       if (keys ? !keys[c.key] : (c.start < lo || c.start > hi)) return;
       var cap = c.earth ? EARTH_CAP : c.max;
       var fil = c.earth ? c.units : c.booked;
@@ -869,9 +938,11 @@ License: MIT
       var pot = c.ppr * c.max;
       var yld = c.d ? c.rev / c.d : 0;
       var flag;
-      // A minimum of 0 switches the revenue rule off, leaving utilisation as the
-      // only route to Run. Without the guard, `yld >= 0` is true of everything.
-      if ((u !== null && u >= RULES.target) || (RULES.yield > 0 && yld >= RULES.yield)) flag = 'Run';
+      // A course already under way gets no action flag: it cannot be promoted,
+      // and a negative days-to-start would otherwise read as Review. It still
+      // counts in every total, which is the point of covering the whole week.
+      if (c.dts < 0) flag = 'Ran';
+      else if ((u !== null && u >= RULES.target) || (RULES.yield > 0 && yld >= RULES.yield)) flag = 'Run';
       else if (c.dts <= RULES.window) flag = 'Review';
       else flag = 'Promote';
       out.push({ c:c, cap:cap, fil:fil, u:u, rem:Math.max(cap - fil, 0),
@@ -882,11 +953,12 @@ License: MIT
 
   function totals(rows){
     var t = { n:0, cap:0, fil:0, rev:0, pot:0, gap:0, td:0,
-              run:0, promote:0, review:0, reviewRev:0, promoteGap:0 };
+              run:0, promote:0, review:0, ran:0, reviewRev:0, promoteGap:0 };
     rows.forEach(function(r){
       t.n++; t.cap += r.cap; t.fil += r.fil; t.rev += r.c.rev;
       t.pot += r.pot; t.gap += r.gap; t.td += r.c.d;
       if (r.flag === 'Run') t.run++;
+      else if (r.flag === 'Ran') t.ran++;
       else if (r.flag === 'Promote'){ t.promote++; t.promoteGap += r.gap; }
       else { t.review++; t.reviewRev += r.c.rev; }
     });
@@ -1013,11 +1085,13 @@ License: MIT
       fcard('promote', 'Promote — time left to sell', t.promote,
             money(t.promoteGap) + ' of unsold seats') +
       fcard('review', 'Review — inside the decision window', t.review,
-            money(t.reviewRev) + ' already booked into these');
+            money(t.reviewRev) + ' already booked into these') +
+      (t.ran ? fcard('ran', 'Ran — already started', t.ran, 'counted in the totals, no action left') : '');
 
     document.getElementById('upSites').innerHTML = all.length ? siteTable(all) : '<p class="empty">No courses in these weeks.</p>';
 
-    var listed = sortRows(scope === 'flagged' ? rows.filter(function(r){ return r.flag !== 'Run'; }) : rows);
+    var listed = sortRows(scope === 'flagged'
+      ? rows.filter(function(r){ return r.flag === 'Review' || r.flag === 'Promote'; }) : rows);
     document.getElementById('upCourses').innerHTML = courseTable(listed);
     document.getElementById('upCount').textContent =
       listed.length + ' of ' + rows.length + ' course' + (rows.length === 1 ? '' : 's') + ' shown';
