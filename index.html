@@ -1074,18 +1074,17 @@ License: MIT
       else if (c.dts <= RULES.window) flag = 'Review';
       else flag = 'Promote';
       out.push({ c:c, cap:cap, fil:fil, u:u, rem:Math.max(cap - fil, 0),
-                 pot:pot, gap:Math.max(pot - c.rev, 0),
-                 above:Math.max(c.rev - pot, 0), yld:yld, flag:flag });
+                 pot:pot, gap:Math.max(pot - c.rev, 0), yld:yld, flag:flag });
     });
     return out;
   }
 
   function totals(rows){
-    var t = { n:0, cap:0, fil:0, rev:0, pot:0, gap:0, above:0, sellable:0, td:0,
+    var t = { n:0, cap:0, fil:0, rev:0, pot:0, gap:0, sellable:0, td:0,
               run:0, promote:0, review:0, ran:0, reviewRev:0, promoteGap:0 };
     rows.forEach(function(r){
       t.n++; t.cap += r.cap; t.fil += r.fil; t.rev += r.c.rev;
-      t.pot += r.pot; t.gap += r.gap; t.above += r.above; t.td += r.c.d;
+      t.pot += r.pot; t.gap += r.gap; t.td += r.c.d;
       // A course that has already run cannot be sold into. Its shortfall is
       // history, not opportunity, so it is kept out of the sellable figure.
       if (r.flag !== 'Ran') t.sellable += r.gap;
@@ -1202,14 +1201,13 @@ License: MIT
 
     document.getElementById('upSummary').innerHTML =
       row('Courses scheduled', t.n) +
-      row('Filled', t.cap ? t.fil + ' of ' + t.cap : '—') +
-      row('Utilisation', pct(t.u)) +
+      row('Utilisation', t.cap ? pct(t.u) + ' <span class="rt">(' + t.fil + ' of ' + t.cap + ')</span>' : '—') +
       row('Booked revenue', money(t.rev)) +
       row('Potential revenue', money(t.pot)) +
       row('Revenue gap', money(t.gap)) +
-      (t.ran ? row('Still sellable', money(t.sellable)) : '') +
-      // booked + gap - above = potential, so the three figures visibly reconcile.
-      (Math.round(t.above) ? row('Above list price', money(t.above)) : '') +
+      // Only worth splitting when the selection straddles the pull date. A month
+      // wholly in the past has nothing sellable; one wholly ahead is all of it.
+      (t.ran && t.ran < t.n ? row('Still sellable', money(t.sellable)) : '') +
       row('Booked share of potential', pct(t.share)) +
       row('Training days', num(t.td)) +
       row('Booked $ per training day', money(t.yield));
