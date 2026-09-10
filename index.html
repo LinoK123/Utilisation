@@ -12,6 +12,7 @@
   --ok-bg:#E6F1EE; --ok-line:#C9E0D9; --ok-ink:#2C5F54;
   --warn-bg:#FAF1DF; --warn-line:#EBDBB6; --warn-ink:#8A6420;
   --risk-bg:#F8E8E5; --risk-line:#EDCFC9; --risk-ink:#9A4239;
+  --now:#4A6C8F;
 }
 *{box-sizing:border-box}
 html,body{margin:0;padding:0}
@@ -80,8 +81,13 @@ h1{font-size:27px;font-weight:500;letter-spacing:-0.015em;margin:0;line-height:1
 .wk:hover{border-color:#CBD2CA}
 .wk:focus-visible{outline:2px solid var(--hrwl-deep);outline-offset:2px}
 .wk[aria-pressed="true"]{border-color:var(--hrwl-deep);background:#FBFAFE}
+.wk.now{border-color:var(--now);box-shadow:0 0 0 2px var(--now)}
+.nowtag{display:inline-block;font-size:9.5px;font-weight:500;letter-spacing:.04em;
+  text-transform:uppercase;padding:1px 6px;border-radius:9px;margin-left:5px;
+  background:var(--now);color:#fff;vertical-align:1px}
 .wk .no{font-size:14px;font-weight:500}
 .wk .dates{font-size:11.5px;color:var(--ink-faint);margin-top:1px;line-height:1.35}
+.wk .dates.part{color:var(--warn-ink)}
 .wk .rev{font-size:18.5px;font-weight:500;margin-top:8px;letter-spacing:-0.015em}
 .wk .split{display:flex;height:5px;border-radius:3px;overflow:hidden;margin-top:9px;background:var(--empty)}
 .wk .split i{display:block;height:100%}
@@ -92,9 +98,12 @@ h1{font-size:27px;font-weight:500;letter-spacing:-0.015em;margin:0;line-height:1
 .detail{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:14px 18px;margin:12px 0 0;display:none}
 .detail.on{display:block}
 .detail h2{font-size:15px;font-weight:500;margin:0 0 10px}
-.dgrid{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:14px 22px}
-.dgrid div span{display:block;font-size:12px;color:var(--ink-faint)}
+.dgrid{display:grid;grid-template-columns:repeat(auto-fit,minmax(178px,1fr));gap:14px 22px}
+.dgrid div .dlbl{display:block;font-size:12px;color:var(--ink-faint)}
 .dgrid div b{font-weight:500;font-size:15px}
+.dgrid .rt{font-weight:400;font-size:13px;color:var(--ink-faint);white-space:nowrap}
+.dgrid .rt-h{color:var(--hrwl-deep)}
+.dgrid .rt-n{color:var(--non-deep)}
 .clearbtn{background:none;border:none;color:var(--hrwl-deep);font:inherit;font-size:13px;cursor:pointer;padding:0;margin-top:12px;text-decoration:underline}
 
 .panel{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:22px 24px 20px;margin-top:22px}
@@ -298,8 +307,8 @@ thead th{color:var(--ink-faint);font-weight:400;font-size:12px;border-bottom:1px
   <div class="upbar">
     <div class="seg" id="horizons" role="group" aria-label="Choose a horizon"></div>
     <div class="rules">
-      <label>Target utilisation <input type="number" id="rTarget" min="0" max="200" step="5" value="70">%</label>
-      <label>Min $ per training day <input type="number" id="rYield" min="0" step="50" value="1000"></label>
+      <label>Target utilisation <input type="number" id="rTarget" min="0" max="200" step="5" value="75">%</label>
+      <label>Min $ per training day <input type="number" id="rYield" min="0" step="50" value="2000"></label>
       <label>Decide within <input type="number" id="rWindow" min="0" max="60" step="1" value="7"> days</label>
     </div>
   </div>
@@ -387,7 +396,7 @@ License: MIT
   ];
   var EARTH_CAP = 12;
   var WINDOW_DAYS = 30;   // fallback only, when a file yields no usable dates
-  var RULES = { target:70, yield:1000, window:7 };
+  var RULES = { target:75, yield:2000, window:7 };
   var MONTHS = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
   var MONTHS_FULL = ['January','February','March','April','May','June','July',
                      'August','September','October','November','December'];
@@ -397,7 +406,7 @@ License: MIT
             ink:'#3D4547', soft:'#6E7A78', faint:'#96A09E', grid:'#EEF0EA', card:'#FFFFFF' };
 
   var site='All', focus=null, MODEL=null, D=null, V=null, tot=[], shH=[], shN=[], pullDate=null, RAW=null;
-  var wkScope='all';
+  var grain='week';   // 'week' | 'month' — the weekly tab's period granularity
   var view='weekly', selId='w2', scope='flagged', sortBy='soon';
 
   function money(v){ return (v===null||v===undefined) ? '—' : '$' + Math.round(v).toLocaleString('en-AU'); }
@@ -447,6 +456,19 @@ License: MIT
              seatsH:z(), capH:z(), seatsN:z(), capN:z() };
   }
 
+  // Exact match first, then any known venue appearing inside the string, so
+  // "810 Worsley Road Carrum Downs 3201" still lands in VIC rather than being
+  // dropped without a word.
+  var SITE_KEYS = Object.keys(SITE_MAP);
+  function siteOf(raw){
+    var v = String(raw||'').trim().toUpperCase();
+    if (SITE_MAP[v]) return SITE_MAP[v];
+    for (var i = 0; i < SITE_KEYS.length; i++){
+      if (v.indexOf(SITE_KEYS[i]) !== -1) return SITE_MAP[SITE_KEYS[i]];
+    }
+    return undefined;
+  }
+
   function transform(rows, pull){
     // The covered range comes from the file's own dates, not from an assumed
     // width. A 60-day forward export used to have everything past pull + 30
@@ -471,7 +493,7 @@ License: MIT
       var dt = parseDMY(r['Short Course Start Date']);
       if (!dt){ badDate++; return; }
       var locRaw = String(r['Location']||'').trim();
-      var s = SITE_MAP[locRaw.toUpperCase()];
+      var s = siteOf(locRaw);
       if (!s){ badLoc[locRaw] = (badLoc[locRaw]||0) + 1; return; }
       var w = isoWeek(dt), mon = mondayOf(dt);
       var key = w.year + '-' + w.week;
@@ -493,32 +515,74 @@ License: MIT
       });
     });
 
+    // A wide export (±70 days) would otherwise put two months either side on
+    // screen. Keep last, current and next month only. A week counts as inside
+    // the window if its MONDAY does, and then the whole week shows.
+    var winLo = new Date(Date.UTC(pull.getUTCFullYear(), pull.getUTCMonth() - 1, 1));
+    var winHi = new Date(Date.UTC(pull.getUTCFullYear(), pull.getUTCMonth() + 2, 0));
+
     var weeks = Object.keys(weeksSeen).map(function(k){ return weeksSeen[k]; })
-      .filter(function(w){ return w.mon >= lo && addDays(w.mon,4) <= hi; })
+      .filter(function(w){ return w.mon >= lo && addDays(w.mon,4) <= hi
+                               && w.mon >= winLo && w.mon <= winHi; })
       .sort(function(a,b){ return a.mon - b.mon; });
     var dropped = Object.keys(weeksSeen).length - weeks.length;
     var idx = {}; weeks.forEach(function(w,i){ idx[w.year+'-'+w.week] = i; });
 
-    var n = weeks.length, sites = {};
-    ORDER.forEach(function(o){ sites[o.key] = blankSite(n); });
-    kept.forEach(function(c){
-      var i = idx[c.key]; if (i === undefined) return;
-      [sites[c.site], sites.All].forEach(function(a){
-        var sfx = c.hrwl ? 'H' : 'N';
-        a['rev'+sfx][i] += c.rev;
-        a['crs'+sfx][i] += 1;
-        a['sd'+sfx][i]  += c.booked * c.d;
-        a['td'+sfx][i]  += c.d;
-        a['seats'+sfx][i] += c.earth ? c.units : c.booked;
-        a['cap'+sfx][i]   += c.earth ? EARTH_CAP : c.max;
+    // Both the weekly and monthly aggregations bucket the same courses the same
+    // way; only the bucket differs. `at` returns the bucket index, or undefined
+    // to skip the course entirely.
+    function aggregate(count, at){
+      var out = {};
+      ORDER.forEach(function(o){ out[o.key] = blankSite(count); });
+      kept.forEach(function(c){
+        var i = at(c); if (i === undefined) return;
+        [out[c.site], out.All].forEach(function(a){
+          var sfx = c.hrwl ? 'H' : 'N';
+          a['rev'+sfx][i] += c.rev;
+          a['crs'+sfx][i] += 1;
+          a['sd'+sfx][i]  += c.booked * c.d;
+          a['td'+sfx][i]  += c.d;
+          a['seats'+sfx][i] += c.earth ? c.units : c.booked;
+          a['cap'+sfx][i]   += c.earth ? EARTH_CAP : c.max;
+        });
       });
+      ORDER.forEach(function(o){
+        var a = out[o.key];
+        a.fillH = a.capH.map(function(c,i){ return c ? a.seatsH[i]/c*100 : null; });
+        a.fillN = a.capN.map(function(c,i){ return c ? a.seatsN[i]/c*100 : null; });
+        a.yieldH = a.tdH.map(function(t,i){ return t ? a.revH[i]/t : null; });
+        a.yieldN = a.tdN.map(function(t,i){ return t ? a.revN[i]/t : null; });
+      });
+      return out;
+    }
+
+    var n = weeks.length;
+    var sites = aggregate(n, function(c){ return idx[c.key]; });
+
+    // Months are true calendar months, so a week straddling a month boundary is
+    // split. That means monthly totals are NOT the sum of the weekly ones, and
+    // a course in a week the weekly view drops as incomplete still lands in its
+    // month. Both are consequences of using real month boundaries.
+    var mSeen = {};
+    kept.forEach(function(c){
+      if (c.start < winLo || c.start > winHi) return;   // the same three-month window
+      var k = c.start.getUTCFullYear() + '-' + c.start.getUTCMonth();
+      if (!mSeen[k]) mSeen[k] = { year: c.start.getUTCFullYear(), m: c.start.getUTCMonth(),
+                                  start: new Date(Date.UTC(c.start.getUTCFullYear(), c.start.getUTCMonth(), 1)) };
     });
-    ORDER.forEach(function(o){
-      var a = sites[o.key];
-      a.fillH = a.capH.map(function(c,i){ return c ? a.seatsH[i]/c*100 : null; });
-      a.fillN = a.capN.map(function(c,i){ return c ? a.seatsN[i]/c*100 : null; });
-      a.yieldH = a.tdH.map(function(t,i){ return t ? a.revH[i]/t : null; });
-      a.yieldN = a.tdN.map(function(t,i){ return t ? a.revN[i]/t : null; });
+    var months = Object.keys(mSeen).map(function(k){ return mSeen[k]; })
+      .sort(function(a,b){ return a.start - b.start; });
+    months.forEach(function(mo){
+      mo.end  = new Date(Date.UTC(mo.year, mo.m + 1, 0));
+      mo.from = mo.start < lo ? lo : mo.start;
+      mo.to   = mo.end   > hi ? hi : mo.end;
+      mo.part = mo.from > mo.start || mo.to < mo.end;
+      mo.days = Math.round((mo.end - mo.start) / 86400000) + 1;
+      mo.covered = Math.round((mo.to - mo.from) / 86400000) + 1;
+    });
+    var midx = {}; months.forEach(function(mo,i){ midx[mo.year + '-' + mo.m] = i; });
+    var monthSites = aggregate(months.length, function(c){
+      return midx[c.start.getUTCFullYear() + '-' + c.start.getUTCMonth()];
     });
 
     notes.push('Pull date ' + fmtDate(pull) + ' ' + pull.getUTCFullYear() + ', file covers ' + fmtDate(lo) + ' to ' + fmtDate(hi) + '.');
@@ -531,40 +595,40 @@ License: MIT
     if (badDate) warn.push(badDate + ' row' + (badDate>1?'s':'') + ' had an unreadable start date and were skipped.');
     if (noRev) warn.push(noRev + ' row' + (noRev>1?'s':'') + ' had no Booking Cost Nett and count as $0.');
 
-    return { weeks:weeks, sites:sites, notes:notes, warn:warn, n:n, courses:kept, pull:pull, lo:lo, hi:hi };
+    return { weeks:weeks, sites:sites, months:months, monthSites:monthSites,
+             notes:notes, warn:warn, n:n, courses:kept, pull:pull, lo:lo, hi:hi,
+             winLo:winLo, winHi:winHi };
   }
 
   var WEEK_FIELDS = ['revH','revN','crsH','crsN','sdH','sdN','tdH','tdN',
                      'seatsH','capH','seatsN','capN','fillH','fillN','yieldH','yieldN'];
 
-  function load(key){
-    site = key; D = MODEL.sites[key];
-    applyScope();
-  }
-  function monthKey(d){ return d.getUTCFullYear() * 12 + d.getUTCMonth(); }
-  function scopeMonth(){
-    if (wkScope === 'cur') return monthKey(MODEL.pull);
-    if (wkScope === 'nxt') return monthKey(nextMonth(MODEL.pull));
-    return null;
-  }
-  // V is the visible slice of D. Everything the weekly tab draws indexes into
-  // V, never D, so `focus` and the chart arrays always line up.
+  function load(key){ site = key; applyScope(); }
+
+  // V is what the weekly tab draws: one row of periods, either weeks or months.
+  // Everything indexes into V, never into MODEL directly, so `focus`, the chart
+  // arrays and the colour arrays always line up.
   function applyScope(){
-    var all = MODEL.weeks, want = scopeMonth(), idx = [];
-    all.forEach(function(w,i){ if (want === null || monthKey(w.mon) === want) idx.push(i); });
-    V = { weeks: idx.map(function(i){ return all[i]; }) };
-    WEEK_FIELDS.forEach(function(k){
-      V[k] = idx.map(function(i){ return D[k][i]; });
-    });
+    var byMonth = grain === 'month';
+    D = (byMonth ? MODEL.monthSites : MODEL.sites)[site];
+    V = { periods: (byMonth ? MODEL.months : MODEL.weeks).map(function(p){
+      return byMonth
+        ? { label: MONTHS[p.m], from: p.from, to: p.to,
+            dates: fmtDate(p.from) + ' – ' + fmtDate(p.to),
+            part: p.part,
+            note: p.part ? p.covered + ' of ' + p.days + ' days in ' + MONTHS_FULL[p.m] + ' are in this export' : '' }
+        : { label: 'Wk ' + p.week, from: p.mon, to: addDays(p.mon,4),
+            dates: fmtDate(p.mon) + ' – ' + fmtDate(addDays(p.mon,4)),
+            part: false, note: '' };
+    }) };
+    WEEK_FIELDS.forEach(function(k){ V[k] = D[k].slice(); });
     tot = V.revH.map(function(v,i){ return v + V.revN[i]; });
     shH = V.revH.map(function(v,i){ return tot[i] ? v/tot[i]*100 : 0; });
     shN = V.revN.map(function(v,i){ return tot[i] ? v/tot[i]*100 : 0; });
-    if (focus !== null && focus >= V.weeks.length) focus = null;
+    if (focus !== null && focus >= V.periods.length) focus = null;
   }
-  function labels(){ return V.weeks.map(function(w){ return 'Wk ' + w.week; }); }
-  function dateLabels(){
-    return V.weeks.map(function(w){ return fmtDate(w.mon) + ' – ' + fmtDate(addDays(w.mon,4)); });
-  }
+  function labels(){ return V.periods.map(function(p){ return p.label; }); }
+  function dateLabels(){ return V.periods.map(function(p){ return p.dates; }); }
 
   function pctRange(vals){
     var v = defined(vals); if (!v.length) return { min:0, max:100, step:20 };
@@ -592,9 +656,15 @@ License: MIT
     strip.innerHTML = '';
     L.forEach(function(lab, i){
       var b = document.createElement('button');
-      b.className = 'wk'; b.type = 'button';
+      b.className = 'wk' + (i === nowIndex() && V.periods[i].to >= MODEL.pull
+                            && V.periods[i].from <= MODEL.pull ? ' now' : '');
+      b.type = 'button';
       b.setAttribute('aria-pressed', focus === i ? 'true' : 'false');
-      b.innerHTML = '<div class="no">' + lab + '</div><div class="dates">' + DT[i] + '</div>' +
+      var per = V.periods[i];
+      if (per.note) b.title = per.note;
+      b.innerHTML = '<div class="no">' + lab +
+        (b.className.indexOf('now') !== -1 ? ' <span class="nowtag">now</span>' : '') + '</div>' +
+        '<div class="dates' + (per.part ? ' part' : '') + '">' + DT[i] + '</div>' +
         '<div class="rev">' + money(tot[i]) + '</div>' +
         '<div class="split"><i style="width:' + shH[i].toFixed(1) + '%;background:' + C.hrwl + '"></i>' +
         '<i style="width:' + shN[i].toFixed(1) + '%;background:' + C.non + '"></i></div>' +
@@ -606,51 +676,48 @@ License: MIT
   }
   function scopeOptions(){
     if (!MODEL) return [];
-    var out = [{ id:'all', label:'All Weeks' }];
-    [['cur', MODEL.pull], ['nxt', nextMonth(MODEL.pull)]].forEach(function(pair){
-      var k = monthKey(pair[1]);
-      var present = MODEL.weeks.filter(function(w){ return monthKey(w.mon) === k; }).length;
-      if (present) out.push({ id:pair[0], month:pair[1],
-        label: pair[0] === 'cur' ? 'Current Month' : 'Next Month' });
-    });
-    return out;
-  }
-  function scopeSub(o){
-    if (o.month) return MONTHS[o.month.getUTCMonth()];
-    var w = MODEL.weeks;
-    if (!w.length) return '';
-    return w.length === 1 ? 'Wk ' + w[0].week : 'Wk ' + w[0].week + '–' + w[w.length-1].week;
+    var w = MODEL.weeks, m = MODEL.months;
+    return [
+      { id:'week',  label:'By Week',
+        sub: w.length ? (w.length === 1 ? 'Wk ' + w[0].week
+                                        : 'Wk ' + w[0].week + '–' + w[w.length-1].week) : '' },
+      { id:'month', label:'By Month',
+        sub: m.length ? (m.length === 1 ? MONTHS[m[0].m]
+                                        : MONTHS[m[0].m] + '–' + MONTHS[m[m.length-1].m]) : '' }
+    ];
   }
   function buildScope(){
-    var host = document.getElementById('wkScope'), opts = scopeOptions();
-    if (opts.length && !opts.filter(function(o){ return o.id === wkScope; }).length){
-      wkScope = 'all'; applyScope();
-    }
+    var host = document.getElementById('wkScope');
     host.innerHTML = '';
-    opts.forEach(function(o){
+    scopeOptions().forEach(function(o){
       var b = document.createElement('button');
       b.type = 'button';
-      b.setAttribute('aria-pressed', o.id === wkScope ? 'true' : 'false');
-      b.innerHTML = '<span class="lab">' + o.label + '</span><span class="rng">' + scopeSub(o) + '</span>';
+      b.setAttribute('aria-pressed', o.id === grain ? 'true' : 'false');
+      b.innerHTML = '<span class="lab">' + o.label + '</span><span class="rng">' + o.sub + '</span>';
       b.addEventListener('click', function(){
-        if (wkScope === o.id) return;
-        wkScope = o.id; focus = null;
+        if (grain === o.id) return;
+        grain = o.id; focus = null;
         applyScope(); render();
       });
       host.appendChild(b);
     });
   }
-  function row(k,v){ return '<div><span>' + k + '</span><b>' + v + '</b></div>'; }
+  function row(k,v){ return '<div><span class="dlbl">' + k + '</span><b>' + v + '</b></div>'; }
+  // total (HRWL:non-HRWL), the pair colour-matched to the charts and split bars.
+  function ratio(h, n, fmt){
+    return fmt(h + n) + ' <span class="rt">(<span class="rt-h">' + fmt(h) +
+           '</span>:<span class="rt-n">' + fmt(n) + '</span>)</span>';
+  }
   function buildDetail(){
     var i = focus;
     if (i === null){ detail.className = 'detail'; detail.innerHTML = ''; return; }
     var L = labels(), DT = dateLabels();
     detail.className = 'detail on';
     detail.innerHTML = '<h2>' + L[i] + ', ' + DT[i] + '</h2><div class="dgrid">' +
-      row('Revenue', money(tot[i]) + '  ·  ' + money(V.revH[i]) + ' HRWL') +
-      row('Courses run', (V.crsH[i] + V.crsN[i]) + '  ·  ' + V.crsH[i] + ' HRWL') +
-      row('Student days', num(V.sdH[i] + V.sdN[i]) + '  ·  ' + num(V.sdH[i]) + ' HRWL') +
-      row('Training days', num(V.tdH[i] + V.tdN[i]) + '  ·  ' + num(V.tdH[i]) + ' HRWL') +
+      row('Revenue', ratio(V.revH[i], V.revN[i], money)) +
+      row('Courses', ratio(V.crsH[i], V.crsN[i], String)) +
+      row('Student days', ratio(V.sdH[i], V.sdN[i], num)) +
+      row('Training days', ratio(V.tdH[i], V.tdN[i], num)) +
       row('HRWL seats', V.capH[i] ? V.seatsH[i] + ' of ' + V.capH[i] + ' (' + pct(V.fillH[i]) + ')' : 'no HRWL courses') +
       row('NON HRWL seats', V.capN[i] ? V.seatsN[i] + ' of ' + V.capN[i] + ' (' + pct(V.fillN[i]) + ')' : 'no courses') +
       row('HRWL per training day', money(V.yieldH[i])) +
@@ -666,12 +733,12 @@ License: MIT
   }
   function fade(hex){ return hex + '3D'; }
   function barColours(hex){
-    return V.weeks.map(function(_,i){ return (focus === null || i === focus) ? hex : fade(hex); });
+    return V.periods.map(function(_,i){ return (focus === null || i === focus) ? hex : fade(hex); });
   }
   function applyFocus(ch){
     ch.data.datasets.forEach(function(ds){
       if (ds.type === 'bar') ds.backgroundColor = barColours(ds._base);
-      else ds.pointRadius = V.weeks.map(function(_,i){ return focus===null ? 5 : (i===focus ? 8 : 4); });
+      else ds.pointRadius = V.periods.map(function(_,i){ return focus===null ? 5 : (i===focus ? 8 : 4); });
     });
   }
   function dayLabels(chart, di, vals, colour){
@@ -718,7 +785,61 @@ License: MIT
     spanGaps:false, order:order }; }
   function pctTick(v){ return v + '%'; }
 
+  // Index of the first period not wholly behind the pull date. Everything
+  // before it has been and gone; the line sits at its left edge.
+  function nowIndex(){
+    if (!MODEL || !V || !V.periods.length) return -1;
+    var p = V.periods;
+    for (var i = 0; i < p.length; i++) if (p[i].to >= MODEL.pull) return i;
+    return p.length;
+  }
+  function boundaryX(chart){
+    // Called during the first draw too, when scales may not be laid out yet.
+    var i = nowIndex(), n = (V && V.periods.length) || 0;
+    var s = chart.scales && chart.scales.x;
+    if (i < 0 || !n || !s || !chart.chartArea) return null;
+    if (n === 1) return chart.chartArea.left;
+    var a = s.getPixelForValue(0), b = s.getPixelForValue(1);
+    if (!isFinite(a) || !isFinite(b)) return null;
+    var half = (b - a) / 2;
+    // If the pull date falls inside period i, most of that period has already
+    // happened — courses overwhelmingly start on a Monday — so the divide goes
+    // after it. If period i is entirely ahead, the divide goes before it.
+    var edge = (i < n && V.periods[i].from <= MODEL.pull) ? i + 1 : i;
+    return edge >= n ? s.getPixelForValue(n-1) + half : s.getPixelForValue(edge) - half;
+  }
+  // Shading goes under the bars, the line over them, so neither is obscured.
+  var nowMarker = {
+    id:'nowMarker',
+    beforeDatasetsDraw: function(chart){
+      var x = boundaryX(chart); if (x === null) return;
+      var a = chart.chartArea, c = chart.ctx, from = Math.max(x, a.left);
+      if (from >= a.right) return;
+      c.save();
+      c.fillStyle = 'rgba(110,122,120,0.055)';
+      c.fillRect(from, a.top, a.right - from, a.bottom - a.top);
+      c.restore();
+    },
+    afterDatasetsDraw: function(chart){
+      var x = boundaryX(chart); if (x === null) return;
+      var a = chart.chartArea, c = chart.ctx;
+      if (x < a.left - 1 || x > a.right + 1) return;
+      c.save();
+      c.strokeStyle = '#7E8B88'; c.lineWidth = 1; c.setLineDash([4,3]);
+      c.beginPath(); c.moveTo(x, a.top); c.lineTo(x, a.bottom); c.stroke();
+      c.setLineDash([]);
+      c.fillStyle = '#7E8B88';
+      c.font = '11px ' + Chart.defaults.font.family;
+      var txt = fmtDate(MODEL.pull), w = c.measureText(txt).width;
+      var toRight = x + 7 + w <= a.right;
+      c.textAlign = toRight ? 'left' : 'right';
+      c.fillText(txt, toRight ? x + 7 : x - 7, a.top + 11);
+      c.restore();
+    }
+  };
+
   var ch1 = new Chart(document.getElementById('c1'), {
+    plugins:[nowMarker],
     data:{ labels:[], datasets:[ bar('HRWL Revenue', C.hrwl, false), bar('NON HRWL Revenue', C.non, true),
       ln('HRWL Util', C.hrwlDeep, [], 'circle', 1), ln('NON HRWL Util', C.nonDeep, [6,3], 'rectRot', 2) ]},
     options: Object.assign({}, base, {
@@ -730,7 +851,7 @@ License: MIT
   });
 
   var ch2 = new Chart(document.getElementById('c2'), {
-    plugins:[{ id:'barLabels', afterDatasetsDraw:function(chart){
+    plugins:[nowMarker, { id:'barLabels', afterDatasetsDraw:function(chart){
       var m = chart.getDatasetMeta(1);
       if (m && m.data){
         var x = chart.ctx; x.save();
@@ -815,11 +936,14 @@ License: MIT
     ch2.options.scales.y1 = yRight(dollarRange(V.yieldH.concat(V.yieldN)), money);
     applyFocus(ch1); applyFocus(ch2); ch1.update(); ch2.update();
     buildTables();
-    var w = V.weeks;
-    document.getElementById('h1').textContent = w.length
-      ? 'Site progress, weeks ' + w[0].week + ' to ' + w[w.length-1].week : 'Site progress';
-    document.getElementById('stamp').textContent = w.length
-      ? fmtDate(w[0].mon) + ' – ' + fmtDate(addDays(w[w.length-1].mon,4)) + ' ' + w[0].year : '';
+    var P = V.periods, last = P[P.length-1];
+    document.getElementById('h1').textContent = !P.length ? 'Site progress'
+      : 'Site progress, ' + (grain === 'month'
+          ? (P.length === 1 ? P[0].label : P[0].label + ' to ' + last.label)
+          : (P.length === 1 ? 'week ' + P[0].label.slice(3)
+                            : 'weeks ' + P[0].label.slice(3) + ' to ' + last.label.slice(3)));
+    document.getElementById('stamp').textContent = P.length
+      ? fmtDate(P[0].from) + ' – ' + fmtDate(last.to) + ' ' + last.to.getUTCFullYear() : '';
     buildHorizons(); renderUpcoming();
   }
 
@@ -882,7 +1006,9 @@ License: MIT
       }
     }
     var pull = MODEL.pull, nxt = nextMonth(pull);
-    out.push({ id:'m0', label:'Rest of Month', from:pull, to:monthEnd(pull), month:pull });
+    var prv = new Date(Date.UTC(pull.getUTCFullYear(), pull.getUTCMonth() - 1, 1));
+    out.push({ id:'mP', label:'Last Month',    from:prv,  to:monthEnd(prv),  month:prv });
+    out.push({ id:'m0', label:'Rest of Month', from:pull, to:monthEnd(pull), month:pull, fromPull:true });
     out.push({ id:'m1', label:'Next Month',    from:nxt,  to:monthEnd(nxt),  month:nxt  });
     return out;
   }
@@ -899,7 +1025,8 @@ License: MIT
     // reconciles with the weekly tab even on a mid-week pull. Month selections
     // still start at the pull date, since "Rest of Month" means what it says.
     if (o.weeks) return o.weeks[0].mon;
-    return o.from > MODEL.pull ? o.from : MODEL.pull;
+    var s = (o.fromPull && o.from < MODEL.pull) ? MODEL.pull : o.from;
+    return s < MODEL.lo ? MODEL.lo : s;
   }
   function optEnd(o){
     // Friday, to match how the week cards are labelled. Week selections match on
@@ -1059,7 +1186,7 @@ License: MIT
         fmtDate(hi) + '. Counted against the pull date, not today.';
       // A calendar month can run past the end of the export. Say so plainly:
       // a part-month reads as a collapse in demand if you do not know it is cut.
-      var short = !o.weeks && o.to > dataLimit();
+      var short = !o.weeks && (o.to > MODEL.hi || o.from < MODEL.lo);
       trunc.hidden = !short;
       if (short){
         var days = function(a,b){ return Math.round((b - a) / 86400000) + 1; };
