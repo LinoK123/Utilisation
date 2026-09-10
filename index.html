@@ -813,11 +813,11 @@ License: MIT
     id:'nowMarker',
     beforeDatasetsDraw: function(chart){
       var x = boundaryX(chart); if (x === null) return;
-      var a = chart.chartArea, c = chart.ctx, from = Math.max(x, a.left);
-      if (from >= a.right) return;
+      var a = chart.chartArea, c = chart.ctx, to = Math.min(x, a.right);
+      if (to <= a.left) return;
       c.save();
       c.fillStyle = 'rgba(110,122,120,0.055)';
-      c.fillRect(from, a.top, a.right - from, a.bottom - a.top);
+      c.fillRect(a.left, a.top, to - a.left, a.bottom - a.top);
       c.restore();
     },
     afterDatasetsDraw: function(chart){
@@ -1305,7 +1305,10 @@ License: MIT
       Array.prototype.forEach.call(siteHost.children, function(el,n){
         el.setAttribute('aria-pressed', ORDER[n].key === s.key ? 'true' : 'false'); });
       document.getElementById('sub').textContent = s.sub;
-      load(s.key); focus = null; render();
+      // Keep the selected period: the whole point of switching site with a week
+      // open is to compare the same week across sites. Periods are identical for
+      // every site, so the index stays valid.
+      load(s.key); render();
     });
     siteHost.appendChild(b);
   });
