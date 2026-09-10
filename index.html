@@ -1060,7 +1060,10 @@ License: MIT
       var cap = c.earth ? EARTH_CAP : c.max;
       var fil = c.earth ? c.units : c.booked;
       var u   = cap ? fil / cap * 100 : null;
-      var pot = c.ppr * c.max;
+      // EARTH is sold by units of competency, so a seat-based ceiling contradicts
+      // its own utilisation — one course reads $6,000 booked against a $2,296
+      // ceiling. Scale what it actually achieved per unit up to the 12-unit cap.
+      var pot = (c.earth && c.units) ? c.rev / c.units * EARTH_CAP : c.ppr * c.max;
       var yld = c.d ? c.rev / c.d : 0;
       var flag;
       // A course already under way gets no action flag: it cannot be promoted,
@@ -1071,17 +1074,21 @@ License: MIT
       else if (c.dts <= RULES.window) flag = 'Review';
       else flag = 'Promote';
       out.push({ c:c, cap:cap, fil:fil, u:u, rem:Math.max(cap - fil, 0),
-                 pot:pot, gap:Math.max(pot - c.rev, 0), yld:yld, flag:flag });
+                 pot:pot, gap:Math.max(pot - c.rev, 0),
+                 above:Math.max(c.rev - pot, 0), yld:yld, flag:flag });
     });
     return out;
   }
 
   function totals(rows){
-    var t = { n:0, cap:0, fil:0, rev:0, pot:0, gap:0, td:0,
+    var t = { n:0, cap:0, fil:0, rev:0, pot:0, gap:0, above:0, sellable:0, td:0,
               run:0, promote:0, review:0, ran:0, reviewRev:0, promoteGap:0 };
     rows.forEach(function(r){
       t.n++; t.cap += r.cap; t.fil += r.fil; t.rev += r.c.rev;
-      t.pot += r.pot; t.gap += r.gap; t.td += r.c.d;
+      t.pot += r.pot; t.gap += r.gap; t.above += r.above; t.td += r.c.d;
+      // A course that has already run cannot be sold into. Its shortfall is
+      // history, not opportunity, so it is kept out of the sellable figure.
+      if (r.flag !== 'Ran') t.sellable += r.gap;
       if (r.flag === 'Run') t.run++;
       else if (r.flag === 'Ran') t.ran++;
       else if (r.flag === 'Promote'){ t.promote++; t.promoteGap += r.gap; }
@@ -1200,6 +1207,9 @@ License: MIT
       row('Booked revenue', money(t.rev)) +
       row('Potential revenue', money(t.pot)) +
       row('Revenue gap', money(t.gap)) +
+      (t.ran ? row('Still sellable', money(t.sellable)) : '') +
+      // booked + gap - above = potential, so the three figures visibly reconcile.
+      (Math.round(t.above) ? row('Above list price', money(t.above)) : '') +
       row('Booked share of potential', pct(t.share)) +
       row('Training days', num(t.td)) +
       row('Booked $ per training day', money(t.yield));
