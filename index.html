@@ -990,6 +990,7 @@ License: MIT
     return MODEL.weeks.filter(function(w){ return w.mon >= m0; });
   }
   function monthEnd(d){ return new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth() + 1, 0)); }
+  function monthStartOf(d){ return new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), 1)); }
   function nextMonth(d){ return new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth() + 1, 1)); }
 
   // Week options are bounded by whole ISO weeks; month options by calendar dates.
@@ -1008,7 +1009,7 @@ License: MIT
     var pull = MODEL.pull, nxt = nextMonth(pull);
     var prv = new Date(Date.UTC(pull.getUTCFullYear(), pull.getUTCMonth() - 1, 1));
     out.push({ id:'mP', label:'Last Month',    from:prv,  to:monthEnd(prv),  month:prv });
-    out.push({ id:'m0', label:'Rest of Month', from:pull, to:monthEnd(pull), month:pull, fromPull:true });
+    out.push({ id:'m0', label:'Current Month', from:monthStartOf(pull), to:monthEnd(pull), month:pull });
     out.push({ id:'m1', label:'Next Month',    from:nxt,  to:monthEnd(nxt),  month:nxt  });
     return out;
   }
@@ -1023,10 +1024,9 @@ License: MIT
   function optStart(o){
     // Week selections run from the Monday, so "This week" is the whole week and
     // reconciles with the weekly tab even on a mid-week pull. Month selections
-    // still start at the pull date, since "Rest of Month" means what it says.
+    // cover the whole calendar month; the part already gone reads as Ran.
     if (o.weeks) return o.weeks[0].mon;
-    var s = (o.fromPull && o.from < MODEL.pull) ? MODEL.pull : o.from;
-    return s < MODEL.lo ? MODEL.lo : s;
+    return o.from < MODEL.lo ? MODEL.lo : o.from;
   }
   function optEnd(o){
     // Friday, to match how the week cards are labelled. Week selections match on
@@ -1041,9 +1041,7 @@ License: MIT
       : 'Wk ' + o.weeks[0].week + '–' + o.weeks[o.weeks.length-1].week;
   }
   function optHead(o){
-    if (!o.weeks){
-      return (o.id === 'm0' ? 'Rest of ' : '') + MONTHS_FULL[o.month.getUTCMonth()];
-    }
+    if (!o.weeks) return MONTHS_FULL[o.month.getUTCMonth()];
     return o.weeks.length === 1 ? 'Week ' + o.weeks[0].week
       : 'Weeks ' + o.weeks[0].week + ' to ' + o.weeks[o.weeks.length-1].week;
   }
